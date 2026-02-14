@@ -8,12 +8,17 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 
 ## Infrastructure Environment
 
-| Component | Instance Type | Specs | Purpose |
-|-----------|---------------|-------|---------|
-| Database | r7i.xlarge | 4 vCPU, 32 GB RAM | RDS/Aurora PostgreSQL |
-| Application | t3.medium | 2 vCPU, 4 GB RAM | Go API server, K6 load testing |
+| Component | Instance Type | Specs | Storage | Purpose |
+|-----------|---------------|-------|---------|---------|
+| RDS PostgreSQL | db.r7i.xlarge | 4 vCPU, 32 GB RAM | gp3 (100GB, 3000 IOPS) | Experiments 1, 2, 3 |
+| Aurora PostgreSQL | db.r7i.xlarge | 4 vCPU, 32 GB RAM | Aurora Storage (auto) | Experiments 1, 2 |
+| Application | t3.medium | 2 vCPU, 4 GB RAM | - | Go API server, K6 load testing |
 
-**Network:** Both instances deployed in the same Availability Zone (AZ) to minimize network latency.
+**Storage Notes:**
+- **RDS:** Uses EBS gp3 storage. You specify type and size when creating the instance.
+- **Aurora:** Uses Aurora's distributed storage (AWS-managed, auto-scales up to 128TB). No storage type selection needed.
+
+**Network:** All instances deployed in the same Availability Zone (AZ) to minimize network latency.
 
 ---
 
@@ -27,6 +32,10 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 |---------------|--------|---------|-------|
 | Aurora PostgreSQL | Aurora | 17.7 | Tuned (if supported) |
 | RDS PostgreSQL | Standard RDS | 18.1 | Tuned |
+
+**Evaluation Criteria:**
+- Performance: TPS, response time (p95/p99), SLA compliance
+- Cost: Instance pricing, storage costs, I/O costs
 
 **Note:** RDS supports parameter group tuning. Aurora tuning support is TBD - some parameters may be AWS-managed.
 
