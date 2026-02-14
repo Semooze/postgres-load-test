@@ -15,6 +15,7 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 | Application | t3.medium | 2 vCPU, 4 GB RAM | - | Go API server, K6 load testing |
 
 **Storage Notes:**
+
 - **RDS:** Uses EBS gp3 storage. You specify type and size when creating the instance.
 - **Aurora:** Uses Aurora's distributed storage (AWS-managed, auto-scales up to 128TB). No storage type selection needed.
 

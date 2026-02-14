@@ -43,14 +43,24 @@ Commands are annotated with where they should be run:
 ### Pre-Test Checklist
 
 ```bash
+# [EC2] Verify EC2 and database are in the same AZ (minimizes network latency)
+curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone
+
+# [LOCAL] Check RDS/Aurora AZ
+aws rds describe-db-instances --db-instance-identifier <instance-id> --query 'DBInstances[0].AvailabilityZone'
+
 # [EC2] Check autovacuum status (should show no running autovacuum jobs)
 psql -h <host> -U <user> -d <db> -c "SELECT pid, usename, query FROM pg_stat_activity WHERE query LIKE '%autovacuum%';"
 
-# [EC2] Monitor WAL/checkpoint activity
+# [EC2] Monitor WAL/checkpoint activity (RDS only - not useful for Aurora)
 psql -h <host> -U <user> -d <db> -c "SELECT * FROM pg_stat_bgwriter;"
 ```
 
+**AZ Requirement:** EC2 app server must be in the **same AZ** as the database instance. Cross-AZ adds ~1-2ms latency per request.
+
 **For RDS/Aurora:** Cannot disable autovacuum, but run `VACUUM ANALYZE` manually before tests so autovacuum has minimal work.
+
+**For Aurora monitoring:** Use CloudWatch metrics (`CommitLatency`, `VolumeReadIOPs`, `VolumeWriteIOPs`) instead of `pg_stat_bgwriter`.
 
 ---
 
