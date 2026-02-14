@@ -101,7 +101,7 @@ psql -h <host> -U postgres -c "DROP DATABASE benchdb;"
 - `http_req_duration p(95)` - Should be < 3000ms (SLA target)
 - `sla_breaches_3s` - Should be 0 or near 0
 - `success_rate` - Should be > 99%
-- Per-query p95: `q1_read_single_ms`, `q2_read_join2_ms`, `q3_read_join3_ms`, `q4_write_single_ms`, `q5_acid_2table_ms`, `q6_acid_3table_ms`
+- Per-query p95: `q1_read_single_ms`, `q2_read_join2_ms`, `q3_read_join3_ms`, `q4_write_single_ms`, `q5_acid_2table_ms`, `q6_acid_3table_ms`, `q7_skip_scan_ms`
 
 ## Monitoring During Tests
 
@@ -125,7 +125,7 @@ Three tables with 10%/20%/70% row distribution:
 Echo framework with pgx connection pool. Endpoints map to benchmark query types:
 
 - `main.go` - Server setup, connection pool config (100 max, 10 min connections)
-- `handlers.go` - Query implementations (Q1-Q6)
+- `handlers.go` - Query implementations (Q1-Q7)
 
 ### Query Types (queries/)
 
@@ -137,6 +137,7 @@ Echo framework with pgx connection pool. Endpoints map to benchmark query types:
 | Q4    | Write       | 1      | `POST /api/transactions`                                             |
 | Q5    | ACID        | 2      | `POST /api/transactions/with-activity`                               |
 | Q6    | ACID        | 3      | `POST /api/transactions/full-process`                                |
+| Q7    | Skip Scan   | 1-2    | `/api/skip-scan/recent-corporates`, `/api/skip-scan/distinct-corporates`, `/api/skip-scan/active-corporates` |
 
 ### K6 Test Script (app/k6_benchmark.js)
 
@@ -149,7 +150,9 @@ Scenarios: `ramp`, `steady_1`, `steady_10`, `steady_100`, `steady_1000`
 ### Benchmark Scripts
 
 - `run_benchmark.sh` - pgbench automation with 60s warmup, tests Q1-Q6 at concurrency 1/10/100/1000
-- `app/run_k6_suite.sh` - Runs all K6 scenarios with health checks and cooldown periods
+- `run_benchmark_q7.sh` - pgbench Q7 skip scan benchmark (Experiment 3 only)
+- `app/run_k6_suite.sh` - Runs all K6 scenarios with health checks and cooldown periods (Q1-Q6)
+- `app/run_k6_q7.sh` - K6 Q7 skip scan benchmark (Experiment 3 only)
 
 ## Dataset Scale Values
 

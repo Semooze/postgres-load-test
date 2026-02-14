@@ -1,30 +1,17 @@
 ## Test Execution Steps
 
-Complete workflow for Experiments 1 & 2. Both experiments will run with tuned configurations where possible.
+Complete workflow for Experiments 1-3 (RDS and Aurora managed services). Both will run with tuned configurations where possible.
 
-- **RDS:** Tuning applied via parameter groups
+- **RDS:** Tuning applied via parameter groups (see `03_tuning_rds.md`)
 - **Aurora:** Tuning applied if supported (some parameters may be AWS-managed)
+
+For Experiment 4 (EC2 Docker/Host), see `03_tuning_ec2.sql` for self-managed PostgreSQL tuning.
 
 ### Execution Environment
 
 Commands are annotated with where they should be run:
 - `[LOCAL]` - Run from your local machine
 - `[EC2]` - Run on the EC2 app server (t3.medium)
-
-### Enable T3 Unlimited Mode (Before Testing)
-
-Enable unlimited CPU burst mode on the app server to prevent throttling during high-concurrency tests:
-
-```bash
-# [LOCAL] Check current credit specification
-aws ec2 describe-instance-credit-specifications --instance-ids <instance-id>
-
-# [LOCAL] Enable unlimited mode
-aws ec2 modify-instance-credit-specification \
-    --instance-credit-specification "InstanceId=<instance-id>,CpuCredits=unlimited"
-```
-
-**Note:** Unlimited mode incurs additional charges when CPU usage exceeds baseline (20% for t3.medium).
 
 ### Test Order (Consolidated)
 

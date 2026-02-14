@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-A comprehensive benchmark suite to evaluate PostgreSQL performance for production deployment with a **3-second response time SLA**. This includes three distinct experiments comparing different PostgreSQL configurations, versions, and deployment strategies.
+A comprehensive benchmark suite to evaluate PostgreSQL performance for production deployment with a **3-second response time SLA**. This includes four experiments comparing different PostgreSQL configurations, versions, and deployment strategies.
 
 ---
 
@@ -14,21 +14,6 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 | Application | t3.medium | 2 vCPU, 4 GB RAM | Go API server, K6 load testing |
 
 **Network:** Both instances deployed in the same Availability Zone (AZ) to minimize network latency.
-
-### Enable T3 Unlimited Burst Mode
-
-T3 instances use CPU credits for bursting. Enable **unlimited mode** to prevent throttling during high-concurrency tests:
-
-```bash
-# [LOCAL] Check current credit specification
-aws ec2 describe-instance-credit-specifications --instance-ids <instance-id>
-
-# [LOCAL] Enable unlimited mode
-aws ec2 modify-instance-credit-specification \
-    --instance-credit-specification "InstanceId=<instance-id>,CpuCredits=unlimited"
-```
-
-**Note:** Unlimited mode incurs additional charges when CPU usage exceeds baseline (20% for t3.medium). Monitor costs in AWS Cost Explorer.
 
 ---
 
@@ -88,7 +73,22 @@ aws ec2 modify-instance-credit-specification \
 
 ---
 
-## 📊 Test Workload
+## Tuning Configuration
+
+| Environment | Method | Config File | Experiments |
+|-------------|--------|-------------|-------------|
+| RDS PostgreSQL | AWS Parameter Groups | `03_tuning_rds.md` | 1, 2, 3 |
+| Aurora PostgreSQL | AWS Cluster Parameter Groups | `03_tuning_rds.md` | 1, 2 |
+| EC2 Host/Docker | `ALTER SYSTEM` / postgresql.conf | `03_tuning_ec2.sql` | 4 |
+
+**Notes:**
+- RDS/Aurora: Cannot use `ALTER SYSTEM`. Must configure via AWS Console or CLI.
+- Aurora: Some parameters are AWS-managed (WAL, checkpoints, I/O).
+- EC2: Requires PostgreSQL restart after applying `ALTER SYSTEM` changes.
+
+---
+
+## Test Workload
 
 ### Query Types
 
@@ -102,7 +102,7 @@ aws ec2 modify-instance-credit-specification \
 | 6 | ACID 3-Table | Transaction: insert transaction + update user + update corporate | 3 |
 | 7 | Skip Scan* | Composite index skip scan (PG 18 feature) | 1-2 |
 
-*Query 7 is only used in Experiment 2 to demonstrate PG 18 improvements.
+*Query 7 is only used in Experiment 3 (RDS version comparison) to demonstrate PG 18 skip scan optimization.
 
 ### Dataset Sizes
 
@@ -157,7 +157,7 @@ pg-benchmark/
 ├── 03_tuning_ec2.sql          # EC2 tuning (ALTER SYSTEM) - Exp 4
 ├── README.md                  # This file
 ├── run_benchmark.sh           # pgbench automation script (Q1-Q6)
-├── run_benchmark_q7.sh        # Q7 skip scan benchmark (Experiment 2 only)
+├── run_benchmark_q7.sh        # Q7 skip scan benchmark (Experiment 3 only)
 ├── app/
 │   ├── go.mod                 # Go module dependencies
 │   ├── main.go                # Go API server
@@ -231,7 +231,7 @@ k6 run --env BASE_URL=http://your-go-api:8080 --env DATASET=1m app/k6_benchmark.
 
 ### Step 6: Compare Query Execution Plans
 
-For Experiment 2, compare the execution plans to observe PG 18's skip scan optimization:
+For Experiment 3, compare the execution plans to observe PG 18's skip scan optimization:
 
 ```bash
 # Test on RDS 17.7
@@ -248,6 +248,21 @@ psql -h rds18 -U <user> -d <db> -c "EXPLAIN (ANALYZE, BUFFERS) SELECT corporate_
 Commands are annotated with where they should be run:
 - `[LOCAL]` - Run from your local machine
 - `[EC2]` - Run on the EC2 app server (t3.medium)
+
+### Enable T3 Unlimited Mode
+
+Enable unlimited CPU burst mode on the app server to prevent throttling during high-concurrency tests:
+
+```bash
+# [LOCAL] Check current credit specification
+aws ec2 describe-instance-credit-specifications --instance-ids <instance-id>
+
+# [LOCAL] Enable unlimited mode
+aws ec2 modify-instance-credit-specification \
+    --instance-credit-specification "InstanceId=<instance-id>,CpuCredits=unlimited"
+```
+
+**Note:** Unlimited mode incurs additional charges when CPU usage exceeds baseline (20% for t3.medium). Monitor costs in AWS Cost Explorer.
 
 ### Upload and Initialize
 
