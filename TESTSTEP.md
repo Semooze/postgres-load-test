@@ -9,9 +9,15 @@ For Experiment 4 (EC2 Docker/Host), see `03_tuning_ec2.sql` for self-managed Pos
 
 ### Execution Environment
 
+| Role | Instance | Specs | Purpose |
+|------|----------|-------|---------|
+| App Server | m8g.xlarge | 4 vCPU, 16 GB (Graviton3) | Go API server |
+| Load Generator | m8g.medium × 2 | 2 vCPU, 8 GB each | K6 load testing (always separate) |
+
 Commands are annotated with where they should be run:
 - `[LOCAL]` - Run from your local machine
-- `[EC2]` - Run on the EC2 app server (t3.medium)
+- `[EC2-APP]` - Run on the EC2 app server (m8g.xlarge)
+- `[EC2-LOAD]` - Run on the EC2 load generator (m8g.medium)
 
 ### Test Order (Consolidated)
 
@@ -43,16 +49,16 @@ Commands are annotated with where they should be run:
 ### Pre-Test Checklist
 
 ```bash
-# [EC2] Verify EC2 and database are in the same AZ (minimizes network latency)
+# [EC2-APP] Verify EC2 and database are in the same AZ (minimizes network latency)
 curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone
 
 # [LOCAL] Check RDS/Aurora AZ
 aws rds describe-db-instances --db-instance-identifier <instance-id> --query 'DBInstances[0].AvailabilityZone'
 
-# [EC2] Check autovacuum status (should show no running autovacuum jobs)
+# [EC2-APP] Check autovacuum status (should show no running autovacuum jobs)
 psql -h <host> -U <user> -d <db> -c "SELECT pid, usename, query FROM pg_stat_activity WHERE query LIKE '%autovacuum%';"
 
-# [EC2] Monitor WAL/checkpoint activity (RDS only - not useful for Aurora)
+# [EC2-APP] Monitor WAL/checkpoint activity (RDS only - not useful for Aurora)
 psql -h <host> -U <user> -d <db> -c "SELECT * FROM pg_stat_bgwriter;"
 ```
 
@@ -67,15 +73,25 @@ psql -h <host> -U <user> -d <db> -c "SELECT * FROM pg_stat_bgwriter;"
 ### Initialization (Once Per Subject)
 
 ```bash
-# [LOCAL] 1. SSH into EC2 app server
-ssh ubuntu@<ec2-ip>
+# [LOCAL] 1. Upload benchmark folder to both EC2 instances
+scp -r . ubuntu@<ec2-app-ip>:~/pg-benchmark/
+scp -r . ubuntu@<ec2-load-ip>:~/pg-benchmark/
 
-# [EC2] 2. Setup EC2 + install tools
+# [LOCAL] 2. SSH into EC2 app server
+ssh ubuntu@<ec2-app-ip>
+
+# [EC2-APP] 3. Setup EC2 + install tools
 cd ~/pg-benchmark/app
 chmod +x setup_ec2.sh
 ./setup_ec2.sh
 
-# [EC2] 3. Create database on target instance
+# [EC2-LOAD] 4. Setup load generator (run setup script for K6)
+ssh ubuntu@<ec2-load-ip>
+cd ~/pg-benchmark/app
+chmod +x setup_ec2.sh
+./setup_ec2.sh
+
+# [EC2-APP] 5. Create database on target instance
 psql -h <host> -U postgres -c "CREATE DATABASE benchdb;"
 ```
 
@@ -88,61 +104,61 @@ Tests Q1-Q7 including skip scan to establish PG 17 baseline. Tuning applied via 
 ### Scale 1: 100K Rows
 
 ```bash
-# [EC2] Initialize schema and seed data
+# [EC2-APP] Initialize schema and seed data
 psql -h <rds17-host> -U postgres -d benchdb -f 01_schema.sql
 psql -h <rds17-host> -U postgres -d benchdb -v scale=1 -f 02_seed_data.sql
 psql -h <rds17-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds17-host> benchdb postgres <pass> 100k rds_17.7
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds17-host> benchdb postgres <pass> 100k rds_17.7
 ```
 
 ### Scale 2: 1M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <rds17-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <rds17-host> -U postgres -d benchdb -v scale=10 -f 02_seed_data.sql
 psql -h <rds17-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds17-host> benchdb postgres <pass> 1m rds_17.7
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds17-host> benchdb postgres <pass> 1m rds_17.7
 ```
 
 ### Scale 3: 10M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <rds17-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <rds17-host> -U postgres -d benchdb -v scale=100 -f 02_seed_data.sql
 psql -h <rds17-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds17-host> benchdb postgres <pass> 10m rds_17.7
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds17-host> benchdb postgres <pass> 10m rds_17.7
 ```
 
 ### Cleanup RDS 17.7
 
 ```bash
-# [EC2] Drop database
+# [EC2-APP] Drop database
 psql -h <rds17-host> -U postgres -c "DROP DATABASE benchdb;"
 # Optionally terminate instance after all tests complete
 ```
@@ -156,54 +172,54 @@ Tests Q1-Q7 including skip scan to demonstrate PG 18 optimization. Tuning applie
 ### Scale 1: 100K Rows
 
 ```bash
-# [EC2] Initialize schema and seed data
+# [EC2-APP] Initialize schema and seed data
 psql -h <rds18-host> -U postgres -d benchdb -f 01_schema.sql
 psql -h <rds18-host> -U postgres -d benchdb -v scale=1 -f 02_seed_data.sql
 psql -h <rds18-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds18-host> benchdb postgres <pass> 100k rds_18.1
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds18-host> benchdb postgres <pass> 100k rds_18.1
 ```
 
 ### Scale 2: 1M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <rds18-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <rds18-host> -U postgres -d benchdb -v scale=10 -f 02_seed_data.sql
 psql -h <rds18-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds18-host> benchdb postgres <pass> 1m rds_18.1
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds18-host> benchdb postgres <pass> 1m rds_18.1
 ```
 
 ### Scale 3: 10M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <rds18-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <rds18-host> -U postgres -d benchdb -v scale=100 -f 02_seed_data.sql
 psql -h <rds18-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark (Q1-Q6)
+# [EC2-APP] Run benchmark (Q1-Q6)
 ./run_benchmark.sh <rds18-host> benchdb postgres <pass> 10m rds_18.1
 
-# [EC2] Run Q7 skip scan benchmark
+# [EC2-APP] Run Q7 skip scan benchmark
 ./run_benchmark_q7.sh <rds18-host> benchdb postgres <pass> 10m rds_18.1
 ```
 
@@ -226,7 +242,7 @@ diff results/rds_17.7/1m/q7_explain_analyze.txt results/rds_18.1/1m/q7_explain_a
 ### Cleanup RDS 18.1
 
 ```bash
-# [EC2] Drop database
+# [EC2-APP] Drop database
 psql -h <rds18-host> -U postgres -c "DROP DATABASE benchdb;"
 ```
 
@@ -239,52 +255,52 @@ Tests Q1-Q6 only. Skips Q7 since Aurora is also PG 17 (no skip scan feature). Tu
 ### Scale 1: 100K Rows
 
 ```bash
-# [EC2] Initialize schema and seed data
+# [EC2-APP] Initialize schema and seed data
 psql -h <aurora-host> -U postgres -d benchdb -f 01_schema.sql
 psql -h <aurora-host> -U postgres -d benchdb -v scale=1 -f 02_seed_data.sql
 psql -h <aurora-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark
+# [EC2-APP] Run benchmark
 ./run_benchmark.sh <aurora-host> benchdb postgres <pass> 100k aurora_17.7
 ```
 
 ### Scale 2: 1M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <aurora-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <aurora-host> -U postgres -d benchdb -v scale=10 -f 02_seed_data.sql
 psql -h <aurora-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark
+# [EC2-APP] Run benchmark
 ./run_benchmark.sh <aurora-host> benchdb postgres <pass> 1m aurora_17.7
 ```
 
 ### Scale 3: 10M Rows
 
 ```bash
-# [EC2] Scale transition
+# [EC2-APP] Scale transition
 psql -h <aurora-host> -U postgres -d benchdb -c "TRUNCATE corporate CASCADE;"
 psql -h <aurora-host> -U postgres -d benchdb -v scale=100 -f 02_seed_data.sql
 psql -h <aurora-host> -U postgres -d benchdb -c "VACUUM ANALYZE;"
 
-# [EC2] Clear filesystem cache
+# [EC2-APP] Clear filesystem cache
 echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-# [EC2] Run benchmark
+# [EC2-APP] Run benchmark
 ./run_benchmark.sh <aurora-host> benchdb postgres <pass> 10m aurora_17.7
 ```
 
 ### Cleanup Aurora 17.7
 
 ```bash
-# [EC2] Drop database
+# [EC2-APP] Drop database
 psql -h <aurora-host> -U postgres -c "DROP DATABASE benchdb;"
 ```
 
@@ -292,21 +308,22 @@ psql -h <aurora-host> -U postgres -c "DROP DATABASE benchdb;"
 
 ## Application-Level Testing (K6)
 
-Run K6 tests after database-level benchmarks for each subject:
+Run K6 tests from the **load generator** (m8g.medium), targeting the app server.
 
 ```bash
-# [EC2] Start Go API server
+# [EC2-APP] Start Go API server
 export DATABASE_URL='postgresql://postgres:<pass>@<host>:5432/benchdb?sslmode=require'
 cd app && ./benchmark-api &
 
-# [EC2] Run K6 benchmark suite (Q1-Q6)
-./run_k6_suite.sh http://localhost:8080 1m rds_17.7
-./run_k6_suite.sh http://localhost:8080 1m rds_18.1
-./run_k6_suite.sh http://localhost:8080 1m aurora_17.7
+# [EC2-LOAD] Run K6 benchmark suite (Q1-Q6) from load generator
+cd ~/pg-benchmark/app
+./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m rds_17.7
+./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m rds_18.1
+./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m aurora_17.7
 
-# [EC2] Run K6 Q7 skip scan (Experiment 3: RDS only)
-./run_k6_q7.sh http://localhost:8080 1m steady_100 rds_17.7
-./run_k6_q7.sh http://localhost:8080 1m steady_100 rds_18.1
+# [EC2-LOAD] Run K6 Q7 skip scan (Experiment 3: RDS only)
+./run_k6_q7.sh http://<ec2-app-private-ip>:8080 1m steady_100 rds_17.7
+./run_k6_q7.sh http://<ec2-app-private-ip>:8080 1m steady_100 rds_18.1
 ```
 
 ---
@@ -316,7 +333,7 @@ cd app && ./benchmark-api &
 **WAL/Checkpoint Spikes:** During write-heavy benchmarks, you may observe p99 latency spikes from PostgreSQL's periodic WAL checkpoints. Monitor with:
 
 ```bash
-# [EC2] Monitor WAL/checkpoint activity
+# [EC2-APP] Monitor WAL/checkpoint activity
 psql -h <host> -U postgres -d benchdb -c "SELECT * FROM pg_stat_bgwriter;"
 ```
 

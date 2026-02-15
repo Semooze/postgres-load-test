@@ -8,11 +8,22 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 
 ## Infrastructure Environment
 
+### Managed Services (Experiments 1-3)
+
 | Component | Instance Type | Specs | Storage | Purpose |
 |-----------|---------------|-------|---------|---------|
-| RDS PostgreSQL | db.r7i.xlarge | 4 vCPU, 32 GB RAM | gp3 (100GB, 3000 IOPS) | Experiments 1, 2, 3 |
-| Aurora PostgreSQL | db.r7i.xlarge | 4 vCPU, 32 GB RAM | Aurora Storage (auto) | Experiments 1, 2 |
-| Application | t3.medium | 2 vCPU, 4 GB RAM | - | Go API server, K6 load testing |
+| RDS PostgreSQL | db.r8g.xlarge | 4 vCPU, 32 GB RAM (Graviton3) | gp3 (100GB, 3000 IOPS) | Experiments 1, 2, 3 |
+| Aurora PostgreSQL | db.r8g.xlarge | 4 vCPU, 32 GB RAM (Graviton3) | Aurora Storage (auto) | Experiments 1, 2 |
+| App Server | m8g.xlarge | 4 vCPU, 16 GB RAM (Graviton3) | - | Go API server |
+| Load Generator | m8g.medium × 2 | 2 vCPU, 8 GB RAM each | - | K6 load testing |
+
+### EC2 Self-Managed (Experiment 4)
+
+| Component | Instance Type | Specs | Storage | Purpose |
+|-----------|---------------|-------|---------|---------|
+| Database | r8g.xlarge | 4 vCPU, 32 GB RAM (Graviton3) | gp3 or local NVMe | PostgreSQL (memory optimized) |
+| App Server | m8g.xlarge | 4 vCPU, 16 GB RAM (Graviton3) | - | Go API server |
+| Load Generator | m8g.medium × 2 | 2 vCPU, 8 GB RAM each | - | K6 load testing |
 
 **Storage Notes:**
 
@@ -20,6 +31,8 @@ A comprehensive benchmark suite to evaluate PostgreSQL performance for productio
 - **Aurora:** Uses Aurora's distributed storage (AWS-managed, auto-scales up to 128TB). No storage type selection needed.
 
 **Network:** All instances deployed in the same Availability Zone (AZ) to minimize network latency.
+
+**Load Generator Separation:** App server and load generator are always on separate instances to avoid resource contention and ensure accurate measurements.
 
 ---
 
@@ -257,33 +270,20 @@ psql -h rds18 -U <user> -d <db> -c "EXPLAIN (ANALYZE, BUFFERS) SELECT corporate_
 
 Commands are annotated with where they should be run:
 - `[LOCAL]` - Run from your local machine
-- `[EC2]` - Run on the EC2 app server (t3.medium)
-
-### Enable T3 Unlimited Mode
-
-Enable unlimited CPU burst mode on the app server to prevent throttling during high-concurrency tests:
-
-```bash
-# [LOCAL] Check current credit specification
-aws ec2 describe-instance-credit-specifications --instance-ids <instance-id>
-
-# [LOCAL] Enable unlimited mode
-aws ec2 modify-instance-credit-specification \
-    --instance-credit-specification "InstanceId=<instance-id>,CpuCredits=unlimited"
-```
-
-**Note:** Unlimited mode incurs additional charges when CPU usage exceeds baseline (20% for t3.medium). Monitor costs in AWS Cost Explorer.
+- `[EC2-APP]` - Run on the EC2 app server (m8g.xlarge)
+- `[EC2-LOAD]` - Run on the EC2 load generator (m8g.medium)
 
 ### Upload and Initialize
 
 ```bash
-# [LOCAL] 1. Upload benchmark folder to EC2
-scp -r . ubuntu@<ec2-ip>:~/pg-benchmark/
+# [LOCAL] 1. Upload benchmark folder to both EC2 instances
+scp -r . ubuntu@<ec2-app-ip>:~/pg-benchmark/
+scp -r . ubuntu@<ec2-load-ip>:~/pg-benchmark/
 
-# [LOCAL] 2. Connect to EC2
-ssh ubuntu@<ec2-ip>
+# [LOCAL] 2. Connect to EC2 app server
+ssh ubuntu@<ec2-app-ip>
 
-# [EC2] 3. Run setup script
+# [EC2-APP] 3. Run setup script
 cd ~/pg-benchmark/app
 chmod +x setup_ec2.sh
 ./setup_ec2.sh
@@ -292,7 +292,7 @@ chmod +x setup_ec2.sh
 ### Database Initialization
 
 ```bash
-# [EC2] 4. Initialize database schema and seed data
+# [EC2-APP] 4. Initialize database schema and seed data
 psql -h <rds-endpoint> -U postgres -d benchdb -f ../01_schema.sql
 psql -h <rds-endpoint> -U postgres -d benchdb -v scale=10 -f ../02_seed_data.sql
 ```
@@ -300,12 +300,13 @@ psql -h <rds-endpoint> -U postgres -d benchdb -v scale=10 -f ../02_seed_data.sql
 ### Start API and Run Tests
 
 ```bash
-# [EC2] 5. Start the Go API server
+# [EC2-APP] 5. Start the Go API server
 export DATABASE_URL='postgresql://postgres:<password>@<rds-endpoint>:5432/benchdb?sslmode=require'
 ./benchmark-api
 
-# [EC2] 6. In another terminal, run K6 benchmark suite
-./run_k6_suite.sh http://localhost:8080 1m aurora_17.7_run1
+# [EC2-LOAD] 6. Run K6 from load generator (always separate from app)
+cd ~/pg-benchmark/app
+./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m aurora_17.7_run1
 ```
 
 ---

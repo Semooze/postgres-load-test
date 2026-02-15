@@ -6,8 +6,7 @@
 -- For RDS/Aurora (Exp 1-3), use 03_tuning_rds.md (AWS Parameter Groups)
 --
 -- Apply these to the "tuned" instances only
--- Adjust values based on your actual EC2 instance RAM/CPU
--- Below assumes r7i.xlarge (4 vCPU, 32 GB RAM) as example
+-- Configured for: r8g.xlarge (4 vCPU, 32 GB RAM, Graviton3, memory optimized)
 -- ============================================================
 
 -- ============================================================

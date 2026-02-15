@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PostgreSQL benchmark suite for evaluating production deployment with a 3-second response time SLA. Compares Aurora vs RDS, PostgreSQL versions (17.7 vs 18.1), and infrastructure configurations (tuning, Docker vs host, storage types).
 
+## Infrastructure
+
+| Role | Instance | Specs |
+|------|----------|-------|
+| Database (RDS/Aurora) | db.r8g.xlarge | 4 vCPU, 32 GB (Graviton3) |
+| Database (EC2) | r8g.xlarge | 4 vCPU, 32 GB (Graviton3) |
+| App Server | m8g.xlarge | 4 vCPU, 16 GB (Graviton3) |
+| Load Generator | m8g.medium × 2 | 2 vCPU, 8 GB each |
+
+App and load generator are always on separate instances.
+
 ## Prerequisites
 
 - **PostgreSQL client tools** - `psql`, `pgbench`
@@ -70,15 +81,16 @@ chmod +x run_benchmark.sh
 ### Step 5: Run K6 (Application-Level)
 
 ```bash
-# Start API server
+# [EC2-APP] Start API server
 export DATABASE_URL='postgresql://postgres:<password>@<host>:5432/benchdb?sslmode=require'
 cd app && ./benchmark-api &
 
-# Run full K6 suite (in separate terminal)
-./run_k6_suite.sh http://localhost:8080 1m aurora_17.7_run1
+# [EC2-LOAD] Run K6 from load generator (always separate from app)
+cd ~/pg-benchmark/app
+./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m aurora_17.7_run1
 
 # Or run single scenario
-k6 run --env BASE_URL=http://localhost:8080 --env DATASET=1m --env SCENARIO=steady_100 k6_benchmark.js
+k6 run --env BASE_URL=http://<ec2-app-private-ip>:8080 --env DATASET=1m --env SCENARIO=steady_100 k6_benchmark.js
 ```
 
 ### Step 6: Scale Transition (Between Dataset Sizes)
