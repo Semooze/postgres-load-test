@@ -3,10 +3,13 @@
 # Run K6 Benchmark Suite
 # Runs all scenarios for a given experiment configuration
 #
-# Usage: ./run_k6_suite.sh <base_url> <dataset> <label>
-# Example: ./run_k6_suite.sh http://localhost:8080 1m aurora_17.7_run1
+# Run from: EC2 Load Generator (m8g.medium)
+# Target:   EC2 App Server (m8g.xlarge)
 #
-# Results are saved to: results/<label>/
+# Usage: ./run_k6_suite.sh <base_url> <dataset> <label>
+# Example: ./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m aurora_17.7
+#
+# Results are saved to: results/<label>/<dataset>/
 # ============================================================
 
 set -euo pipefail

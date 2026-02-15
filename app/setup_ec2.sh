@@ -1,7 +1,11 @@
 #!/bin/bash
 # ============================================================
 # EC2 Setup Script
-# Run on a fresh Ubuntu 24.04 EC2 instance
+# Run on a fresh Ubuntu 24.04 EC2 instance (Graviton arm64)
+#
+# Works for both:
+#   - App Server (m8g.xlarge) - runs Go API
+#   - Load Generator (m8g.medium) - runs K6 tests
 #
 # Usage: chmod +x setup_ec2.sh && ./setup_ec2.sh
 # ============================================================
@@ -12,6 +16,15 @@ echo "============================================================"
 echo "Setting up benchmark environment..."
 echo "============================================================"
 
+# Detect architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ]; then
+    GO_ARCH="arm64"
+else
+    GO_ARCH="amd64"
+fi
+echo "Detected architecture: $ARCH (Go: $GO_ARCH)"
+
 # Update system
 sudo apt-get update -y
 sudo apt-get upgrade -y
@@ -21,10 +34,10 @@ sudo apt-get upgrade -y
 # ============================================================
 echo "Installing Go..."
 GO_VERSION="1.22.5"
-wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+wget -q "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
 sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
-rm "go${GO_VERSION}.linux-amd64.tar.gz"
+sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
+rm "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
 
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 echo 'export GOPATH=$HOME/go' >> ~/.bashrc
@@ -39,13 +52,23 @@ go version
 # Install K6
 # ============================================================
 echo "Installing K6..."
-sudo gpg -k
-sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
-    --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | \
-    sudo tee /etc/apt/sources.list.d/k6.list
-sudo apt-get update -y
-sudo apt-get install -y k6
+if [ "$ARCH" = "aarch64" ]; then
+    # arm64: Download binary directly (apt repo is amd64 only)
+    K6_VERSION="v0.54.0"
+    wget -q "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-arm64.tar.gz"
+    tar -xzf "k6-${K6_VERSION}-linux-arm64.tar.gz"
+    sudo mv "k6-${K6_VERSION}-linux-arm64/k6" /usr/local/bin/
+    rm -rf "k6-${K6_VERSION}-linux-arm64" "k6-${K6_VERSION}-linux-arm64.tar.gz"
+else
+    # amd64: Use apt repository
+    sudo gpg -k
+    sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+        --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+    echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | \
+        sudo tee /etc/apt/sources.list.d/k6.list
+    sudo apt-get update -y
+    sudo apt-get install -y k6
+fi
 
 k6 version
 
@@ -127,18 +150,18 @@ echo "============================================================"
 # ============================================================
 echo "Building Go benchmark API..."
 
-cd ~/benchmark/app
+cd ~/pg-benchmark/app
 
 # Download dependencies
 go mod tidy
 
-# Build
+# Build for current architecture
 go build -o benchmark-api .
 
 echo "============================================================"
-echo "Go API built: ~/benchmark/app/benchmark-api"
+echo "Go API built: ~/pg-benchmark/app/benchmark-api"
 echo ""
-echo "TO RUN:"
+echo "TO RUN (on App Server only):"
 echo "  # Direct connection (concurrency < 100)"
 echo "  DATABASE_URL='postgresql://postgres:PASSWORD@RDS_ENDPOINT:5432/benchdb?sslmode=require' ./benchmark-api"
 echo ""
@@ -164,9 +187,19 @@ echo "  - pgbench $(pgbench --version | awk '{print $3}')"
 echo "  - PgBouncer (configured but not started)"
 echo "  - htop, sysstat (monitoring)"
 echo ""
-echo "Next steps:"
+echo "============================================================"
+echo "NEXT STEPS"
+echo "============================================================"
+echo ""
+echo "FOR APP SERVER (m8g.xlarge):"
 echo "  1. Configure PgBouncer (see instructions above)"
-echo "  2. Run schema + seed: psql -h RDS_ENDPOINT -U postgres -d benchdb -f 01_schema.sql"
-echo "  3. Start API: DATABASE_URL=... ./benchmark-api"
-echo "  4. Run K6: k6 run --env BASE_URL=http://localhost:8080 --env DATASET=1m --env SCENARIO=steady_100 k6_benchmark.js"
+echo "  2. Run schema + seed:"
+echo "     psql -h RDS_ENDPOINT -U postgres -d benchdb -f ../01_schema.sql"
+echo "     psql -h RDS_ENDPOINT -U postgres -d benchdb -v scale=10 -f ../02_seed_data.sql"
+echo "  3. Start API:"
+echo "     DATABASE_URL='postgresql://postgres:PASSWORD@RDS_ENDPOINT:5432/benchdb?sslmode=require' ./benchmark-api"
+echo ""
+echo "FOR LOAD GENERATOR (m8g.medium):"
+echo "  1. Run K6 tests (targeting app server private IP):"
+echo "     ./run_k6_suite.sh http://<ec2-app-private-ip>:8080 1m aurora_17.7"
 echo "============================================================"

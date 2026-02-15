@@ -1,17 +1,20 @@
 #!/bin/bash
 # ============================================================
 # Run K6 Q7 Skip Scan Benchmark
-# For Experiment 2: RDS 17.7 vs RDS 18.1 comparison
+# For Experiment 3: RDS 17.7 vs RDS 18.1 comparison
 #
 # Tests Q7 skip scan endpoints via Go API
 # Run this AFTER run_k6_suite.sh for skip scan comparison
+#
+# Run from: EC2 Load Generator (m8g.medium)
+# Target:   EC2 App Server (m8g.xlarge)
 #
 # Usage: ./run_k6_q7.sh <base_url> <dataset> <scenario> <label>
 #
 # Scenarios: steady_1 | steady_10 | steady_100 | steady_1000 | ramp
 #
 # Example:
-#   ./run_k6_q7.sh http://localhost:8080 1m steady_100 rds_18.1
+#   ./run_k6_q7.sh http://<ec2-app-private-ip>:8080 1m steady_100 rds_18.1
 # ============================================================
 
 set -euo pipefail

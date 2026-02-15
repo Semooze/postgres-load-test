@@ -1,10 +1,15 @@
 #!/bin/bash
 # ============================================================
-# PostgreSQL Benchmark Runner
+# PostgreSQL Benchmark Runner (pgbench - Database Level)
+# Runs Q1-Q6 queries directly against the database using pgbench
+#
+# Run from: EC2 App Server (m8g.xlarge)
+# Target:   RDS/Aurora database directly (not through Go API)
+#
 # Usage: ./run_benchmark.sh <db_host> <db_name> <db_user> <db_pass> <dataset_size> <label>
 #
 # dataset_size: 100k | 1m | 10m
-# label: e.g., "aurora_17.7" or "rds_18.1_tuned"
+# label: e.g., "aurora_17.7" or "rds_18.1"
 #
 # Example:
 #   ./run_benchmark.sh mydb.cluster.amazonaws.com benchdb postgres mypass 1m aurora_17.7

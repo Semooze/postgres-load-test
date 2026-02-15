@@ -1,7 +1,10 @@
 #!/bin/bash
 # ============================================================
-# PostgreSQL Benchmark Runner - Q7 Skip Scan Only
-# For Experiment 2: RDS 17.7 vs RDS 18.1 comparison
+# PostgreSQL Benchmark Runner - Q7 Skip Scan Only (pgbench)
+# For Experiment 3: RDS 17.7 vs RDS 18.1 comparison
+#
+# Run from: EC2 App Server (m8g.xlarge)
+# Target:   RDS database directly (not through Go API)
 #
 # Run this AFTER run_benchmark.sh to add Q7 results
 #
@@ -56,7 +59,7 @@ CONCURRENCY_LEVELS=(1 10 100 1000)
 DURATION=300
 
 echo "============================================================"
-echo "Q7 Skip Scan Benchmark (Experiment 2)"
+echo "Q7 Skip Scan Benchmark (Experiment 3: RDS Version Comparison)"
 echo "============================================================"
 echo "Label: $LABEL | Dataset: $DATASET_SIZE"
 echo "Host: $DB_HOST | DB: $DB_NAME"
